@@ -1,0 +1,572 @@
+---
+title: "Exploring and Defining Success on the Kickstarter Platform"
+author: "Alex Weirth"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+subtitle: DATA501 Final Research Project
+---
+
+<center>![](/Users/alexweirth/Documents/data_science_r_501/Final Project/compass-full-color.jpg){width="67"}</center>
+
+```{r setup, echo=FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r, echo=FALSE, include=FALSE}
+library(tidyverse)
+library(car)
+library(GGally)
+library(skimr)
+library(stringr)
+library(GGally)
+library(dplyr)
+library(forcats)
+library(lubridate)
+library(gridExtra)
+```
+
+```{r, echo=FALSE, include=FALSE}
+kickstarts <- read_csv("/Users/alexweirth/Documents/data_science_r_501/Final Project/kickstarter.csv")
+```
+
+```{r, echo=FALSE, include=FALSE}
+
+##### DATA CLEANING #####
+
+# Category should be a factor (not going to worry about subcategory since there are so many)
+kickstarts$CATEGORY <- as.factor(kickstarts$CATEGORY)
+
+# launch date and deadline date need to be date types
+kickstarts$LAUNCHED_DATE <- as.Date(kickstarts$LAUNCHED_DATE, format = "%m/%d/%Y")
+kickstarts$DEADLINE_DATE <- as.Date(kickstarts$DEADLINE_DATE, format = "%m/%d/%Y")
+
+# create feature "FUNDING_WINDOW" measured in days
+kickstarts$FUNDING_WINDOW_DAYS <- as.numeric(kickstarts$DEADLINE_DATE - kickstarts$LAUNCHED_DATE)
+
+# USD goal and pledged needs to be numeric type
+kickstarts$GOAL_IN_USD <- as.numeric(str_remove_all(kickstarts$GOAL_IN_USD, "[$,]"))
+kickstarts$PLEDGED_IN_USD <- as.numeric(str_remove_all(kickstarts$PLEDGED_IN_USD, "[$,]"))
+
+# I also want to create a feature that quantifies the severity of the failure (how much they didnt achieve their goal by... a lot or a little?)
+kickstarts$FUNDING_VS_GOAL <- kickstarts$PLEDGED_IN_USD - kickstarts$GOAL_IN_USD
+
+# Using the feature name "state" for non location data seems confusing - going to change that name to STATUS
+kickstarts <- kickstarts %>%
+  rename(STATUS = STATE)
+
+# Status should also be a factor
+kickstarts$STATUS <- as.factor(kickstarts$STATUS)
+
+# I want a variable that can easily show the success and failure rates of each CATEGORY
+kickstarts <- kickstarts %>%
+  group_by(CATEGORY) %>%
+  mutate(
+    CATEGORY_FAIL_RATE = sum(STATUS == "failed") / n(),
+    CATEGORY_SUCCESS_RATE = sum(STATUS == "successful") / n()
+  )
+
+# Categorical variable for launch and deadline month
+kickstarts <- kickstarts %>%
+  mutate(
+    LAUNCH_MONTH = month(LAUNCHED_DATE),
+    DEADLINE_MONTH = month(DEADLINE_DATE),
+    LAUNCH_MONTH_NAME = factor(month(LAUNCHED_DATE, label = TRUE, abbr = FALSE), levels = month.name),
+    DEADLINE_MONTH_NAME = factor(month(DEADLINE_DATE, label = TRUE, abbr = FALSE), levels = month.name)
+  )
+
+# Variable for identifying year
+kickstarts <- kickstarts %>%
+  mutate(LAUNCH_YEAR = factor(year(LAUNCHED_DATE), ordered = TRUE))
+
+kickstarts <- kickstarts %>%
+  mutate(DEADLINE_YEAR = factor(year(DEADLINE_DATE), ordered = TRUE))
+
+# Creating a pledge - goal ratio feature - close to one is good, tiny value means severeley underfunded and high value means overfunded
+
+kickstarts <- kickstarts %>%
+  mutate(PG_RATIO = PLEDGED_IN_USD/GOAL_IN_USD)
+
+# Drop projects with 0 goal
+kickstarts2 <- kickstarts %>%
+  filter(GOAL_IN_USD != 0 & GOAL_IN_USD >= 1000 & GOAL_IN_USD <= 15000)
+
+```
+
+## ABSTRACT
+
+This observational study investigates the history of Kickstarter campaigns from 2009 to 2020 covering 309,642 individual campaigns after data cleaning. Findings reveal key insights and recommendations to stakeholders on the Kickstarter platform regarding campaign competitiveness across categories, temporal trends of campaign launches and pledging rates, and analysis of the history of success across different campaign categories. Results indicated significant differences in overall campaign category competitiveness measured by launch amounts and average funding per category. Results also uncovered a significant decline in campaigns and pledge amounts during December and increased discrepancy between pledged amounts and funding goals, indicating challenges for new campaigns during this period and decreased revenue for Kickstarter. The study identified categories of Dance, Theater, and Art as historical campaign categories ties to the highest success rates. Results are discussed in terms of reccomendations for future actions of stakeholders on the Kickstarter platform and future directions of the research.
+
+--------------------------------------------------------------------------------
+
+## INTRODUCTION
+
+Kickstarter was founded in 2009 with the goal of "bringing creative projects to life." Now a Public Benefit Corporation, the company has raised over seven and a half billion dollars for over 250,000 successful campaigns since 2009 and continues to facilitate the process of fueling creators' dreams. Kickstarter has given life to now popular campaigns such as "Fidget Cube", The "Exploding Kittens" card game, wearable technology and much more; Kickstarter has demonstrated real power in bringing entrepreneurial dreams to life and is a crucial platform for new ideas. The Kickstarter process begins with creative authors who publish their ideas in the form of a campaign providing their business pitch along with the business category it aligns with, funding goals, the funding deadline, and rewards for potential backers. Supporters can "pledge" money towards these goals if they believe in a project, and if the goal is reached money will be collected from backers. If the funding goal is not achieved by the specified funding deadline, no money will be collected and the campaign will fail. If a campaign is to succeed the money is given to the creator to pursue their idea, while 5% along with fees for payment and processing are collected by Kickstarter for their help. For the company (and most obviously the creators), there is an incentive for projects to succeed as more revenue is generated for Kickstarter. These stakeholders would be eager to understand and promote campaign success on the platform - more successful campaigns means more creative ideas in society, dreams achieved, and more revenue for business owners at Kickstarter. The following project is an observational study with the goal of providing insight and answers on the following research questions which are primarily focused on the Kickstarter identifier for campaign category:
+
+-   What has the history of competitiveness been on Kickstarter from 2009-2020 in terms of overall campaigns per category, and pledge generation per category?
+-   Does campaign launch amount, success or pledging/backing show any temporal trends or a cyclical nature?
+-   What defines success, and what Kickstarter categories are tied to the most successful campaigns?
+
+Providing insight to these research questions for the creators and business owners of Kickstarter is the primary goal of this research. Visual exploration and hypothesis tests were carried out to find trends in the data as well as an attempt to create a linear model to predict funding achievement with the use of other features in the data to identify significant predictors of pledge amounts.
+
+--------------------------------------------------------------------------------
+
+## DATA AND METHODOLOGY
+
+#### THE DATA \
+
+The data in this study comes directly from Kickstarter, and was published by Jonathan Leland who is the Chief Strategy Officer at Kickstarter. There are 506,199 total observations of individual Kickstarter projects which were seeking funding during the years of 2009-2020. The data is strictly observational, captured during the 11 years of 2009-2020 and compiled by Kickstarter. The observational units are individual Kickstarter campaigns each containing a variety of features associated with each campaign. The code book provided by Jonathan Leland does not explicitly state if the sample is the complete history of Kickstarter data from 2009-2020 however due to the large sample size, completeness in it's 11 year span, and public usage intent, the data is relatively complete (not considering the masked variables which contain sensitive data). The code book also did not provide information on sampling scheme or bias prevention - the data is assumed to be the full extent of observations on the Kickstarter platform between the years of 2009-2020. There were no likely covariates found.
+
+#### DATA CLEANING & FEATURE ENGINEERING \
+
+The data was substantially clean upon importing it into R, 2% of data was missing in the BACKERS_COUNT feature which was left in the dataset due to the other important features those observations contained. The main variables of significance in this study are as follows:
+
+- CATEGORY: The main category of the campaign (Art, Comics, Crafts, Dance, etc.), was a main variable of interest.
+- SUBCATEGORY: A more specific category for the project (161 total subcategories), not focused on in the scope of this study due to the diversity of observations.
+- LAUNCHED_DATE: Date the project was launched on the platform.
+- DEADLINE_DATE: Project funding deadline date.
+- GOAL_IN_USD: Funding goal amount converted to U.S. Dollars.
+- PLEDGED_IN_USD: Amount pledged converted to U.S. Dollars.
+- BACKERS_COUNT: Count of individual supporters who pledged to donate to a campaign.
+- STATUS: Final state of project (successful, failed, canceled, suspended).
+
+Features engineered to create insightful variables are as follows:
+
+- FUNDING_WINDOW_DAYS: Time in days the campaign had from its start date to reach its pledge goal before failure.
+- FUNDING_VS_GOAL: Amount in USD that a campaign lacked funds to achieve its goal or amount it exceeded its goal by. (positive values signify excess funds negative values signify a discrepancy)
+- CATEGORY_FAIL_RATE: Proportion of observations failed within each category.
+- CATEGORY_SUCCESS_RATE: Proportion of observations succeeding within each category.
+- LAUNCH_YEAR: Year project launched extracted from LAUNCHED_DATE.
+- DEADLINE_YEAR: Year of project deadline extracted from DEADLINE_DATE.
+- LAUNCH_MONTH_NAME: Ordinal factor of the calendar month a campaign was launched.
+- DEADLINE_MONTH_NAME: Ordinal factor of the calendar month for a campaign’s deadline.
+- PG_RATIO: Normalized ratio of PLEDGED_IN_USD / GOAL_IN_USD - Quantifying the severity of which a campaign is under or over-funded.
+
+
+##### IMPORTANT CLEANING METHODOLOGY \
+
+The data in this study represents 506,199 ideas. A substantial amount of these ideas had pledge goals that were not helpful in defining and understanding success on Kickstarter. Many goals asked for 1 dollar and were likely to receive that one dollar; defining a project as a success is nonproductive as it is unrealistic that one dollar will make impactful change. To only consider projects that had a large enough pledge goal to investigate significant work, a minimum goal of 1,000 USD was required for a project to be included in the cleaned data. In order to filter out campaigns that asked for an exorbitant amount that was unreasonable, the upper bound for GOAL_IN_USD was set at 15,000 USD which was the 3rd quartile of our data (see Appendix I). This left the final dataset with 309,642 observations of campaigns with reasonable and meaningful pledge goal amounts to investigate.
+
+--------------------------------------------------------------------------------
+
+## RESULTS
+
+#### I. History of Competitiveness \
+
+Initial visual exploration of campaign competitiveness started with observing raw counts of campaigns within each category. The majority of the cleaned data lies within the categories of Music, Film & Video, Publishing, and Games which account for 53% of the data show in graphic 1.1. 
+
+```{r, echo=FALSE}
+kickstarts2 %>% 
+  group_by(CATEGORY) %>%
+  summarize(count = n()) %>%
+  ggplot(aes(y = fct_reorder(CATEGORY, count), x = count)) +
+  geom_bar(stat = "identity", fill = "cyan3", color = "black") +
+  ggtitle("1.1 What Kickstarter Categories Have the Most Campaigns?") +
+  labs(x = "Count", y = "Category") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+```
+
+This graphic shows that these top categories are extremely competitive and saturated with lots of different campaigns. For business owners at Kickstarter, it is recommended that they push to advertise and direct potential backers to these areas since there are so many campaign opportunities here. For new creators and entrepreneurs, it is recommended that they target the lower areas with new ideas due to the lack of innovation in those categories and the potential desire of new backers to enter these much less over saturated categories.
+
+Investigating the average goal amount by campaign category in USD within the filtered data yielded the following visualization 1.2:
+
+```{r, echo=FALSE}
+kickstarts2 %>%
+  group_by(CATEGORY) %>%
+  summarize(avg_goal_per_campaign = mean(GOAL_IN_USD)) %>%
+  ggplot(aes(y = fct_reorder(CATEGORY, avg_goal_per_campaign), x = avg_goal_per_campaign)) +
+  geom_bar(stat = "identity", fill = "#03bfc4", color = "black") +
+  geom_text(aes(label = scales::dollar(avg_goal_per_campaign)), hjust = -0.2, size = 3) +
+  coord_cartesian(xlim = c(0, 8000)) +
+  ggtitle("1.2 Average Goal Amount per Campaign by Category") +
+  labs(subtitle = "Data filtered for goals ranging from 1,000-15,000 USD",x = "Average Goal Amount in USD", y = "Category") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(),
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+    )
+```
+
+Interestingly, the categories that on average request the most money per campaign are not the categories with the most or least campaigns; there is a middle ground where those expensive campaigns fall. It is important to note that since the extreme goal requests were filtered out those values are not taken into account most of which fall into the Technology, Film & Video, and Journalism categories. The categories that are most competitive in asking for the largest pledge goals are Food, Technology, and Design while the smallest goals on average belong to arts driven categories such as Theater, Dance, Crafts, Art, and Comics. As a potential new creator on the Kickstarter scene, these amounts should be important to consider when setting a reasonable pledge goal to achieve within your category which will help creators chance of funding a campaign successfully. Furthermore, this graphic also shows on average where the most value lies among different categories to Kickstarter. On average a successful project in a Food or Technology category will yield more profits for the company compared to a successful project in the arts.
+
+--------------------------------------------------------------------------------
+
+#### II. Investigation of Time Trends and Cyclical Events \
+
+An important question in this research was if campaign launch amount, success, or pledging/backing show any time trends or a cyclical nature. Investigating trends with time in this data could help creators determine what months they can request more funds than average, or predict months that are more competitive and harder to achieve funding. From a Kickstarter standpoint, investigating time trends could also provide insight on when to expect more success, collecting more transaction fees, or months when they need to do more advertisement of their services.
+
+```{r, echo=FALSE}
+time1 <- kickstarts2 %>%
+  group_by(LAUNCH_MONTH_NAME) %>%
+  summarize(count = n()) %>%
+  ggplot(aes(x = LAUNCH_MONTH_NAME, y = count)) +
+  geom_bar(stat = "identity", fill = "cyan3", color = "black") +
+  ggtitle("2.1 Average Campaigns per Month 2009-2020") +
+  labs(x = "Month", y = "Count") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1)
+    )
+
+time2 <- kickstarts2 %>%
+  group_by(LAUNCH_MONTH_NAME) %>%
+  summarize(money_raised = sum(PLEDGED_IN_USD)) %>%
+  ggplot(aes(x = LAUNCH_MONTH_NAME, y = money_raised)) +
+  geom_bar(stat = "identity", fill = "cyan3", color = "black") +
+  ggtitle("2.2 Pledge Amounts by Month 2009-2020") +
+  labs(x = "Month", y = "Dollars (USD)") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1)
+    )
+
+grid.arrange(time1, time2, nrow = 2)
+
+#time1 # campaigns down during holidays
+#time2 # pledge amounts down a lot during holidays
+```
+
+The above graphics show all of the data from 2009-2020 aggregated into the months of a calendar year. Graphic 2.1 is showing the average number of campaigns launched each month from 2009-2020. Graphic 2.2 is showing the total money pledged during the years 2009-2020 grouped by month. The graphic shows little change from February to November in terms of campaign numbers by month as well as pledge amounts by month. During the month of December and somewhat into January, there is a significant decrease in campaign amounts and pledge amounts. For the scope of this research it is uncertain what is causing this significant decrease, possibly due to the increased spending on other items for the average person during gift season, and potentially creators being busy during this season and less focused on entrepreneurial endeavors.
+
+```{r, echo=FALSE}
+kickstarts2 %>%
+  group_by(LAUNCH_MONTH_NAME) %>%
+  summarize(avg_disc = mean(FUNDING_VS_GOAL)) %>%
+  ggplot(aes(x = LAUNCH_MONTH_NAME, y = avg_disc)) +
+  geom_bar(stat = "identity", fill = "cyan3", color = "black") +
+  geom_hline(yintercept = 0, color = "black") +
+  ggtitle("2.3 Average Pledge/Goal Difference by Month 2009-2020") +
+  labs(x = "Month", y = "Pledged - Goal in Dollars (USD)") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1)
+    )
+```
+
+Graphic 2.3 shows the average difference of amount pledged minus proposed goal per campaign aggregated into calendar months from 2009-2020. This graphic shows a very important trend. As identified in graphic 1 and 2 above, there is a significant decline of traffic both in campaigns launched and total money being pledged on the platform during the month of December. This graphic shows even more so that during the month of December there is an exceptionally large jump in the competitiveness of securing funding on Kickstarter. On average there is a discrepancy of $1141.85 per campaign comparing the amount pledged to the proposed goal amount. For potential new creators this means that December is a very unfavorable month to launch a new campaign; it is unlikely that a pledging goal will be achieved. It is recommended to launch a project near the start of the new year or the start of the fall months to allow the bulk of your pledging to come during August-October. For businesses owners at Kickstarter, this means they should expect on average, a significant decline in monetary profits from transaction fees during the month of December. To fix this, it is recommended they promote advertising of their platform during these months to increase the likelihood of a campaign to be successfully funded.
+
+--------------------------------------------------------------------------------
+
+#### III. Investigating Success and Failure on Kickstarter \
+
+The benefits for both creators and owners of Kickstarter if campaigns succeed are clear; more monetary gain for both. Thus far, important trends have been identified to recommend action for both of these stakeholders. Now, this section will observe trends of success, and specifically what Kickstarter categories are historically successful or most susceptible to failure. 
+
+Categories with the most campaigns succeed the most and also fail the most (refer to Appendix II). To investigate further if there were specific categories that stood out in terms of success rates the engineered features of CATEGORY_FAIL_RATE and CATEGORY_SUCCESS_RATE were used. The following graphic represents the filtered data from 2009-2020 and shows the success and failure rates for each category (it is important to note that observations with the levels of canceled and suspended for the campaign STATUS were removed due to the levels not being meaningful for analysis).
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+axis_order <- c("Dance", "Theater", "Comics", "Music", "Games","Design", 
+                "Art", "Film & Video", "Publishing", "Photography","Food",
+                "Fashion", "Technology", "Journalism", "Crafts")
+
+kickstarts2 %>%
+  group_by(CATEGORY, STATUS) %>%
+  summarize(count = n()) %>%
+  mutate(total_count = sum(count),
+         percent = count/total_count
+         ) %>%
+  arrange(desc(percent)) %>%
+  filter(STATUS == "successful" | STATUS == "failed") %>%
+  ggplot(aes(y = factor(CATEGORY, levels = rev(axis_order)), x = percent, fill = STATUS)) +
+  geom_bar(position = "fill", stat = "identity") +
+  ggtitle("Success and Failure Rates by Category") +
+  geom_text(aes(label = paste0(round(percent * 100), "%")), position = position_stack(vjust = 0.5)) +
+  ggtitle("3.1 What Categories Have the Greatest Success and Failure Rates?") +
+  labs(subtitle = "Data filtered for only camaigns with successful or failed result 2009-2020", x = "Percentage of Observations", y = "Category") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+
+```
+
+In this graphic, 3 categories clearly top the chart when observing percent of observations that achieved successful funding levels. Dance, Theater, and Comics appear to have significantly higher success rates than other categories. To test if the third ranked category (Comics) was significantly more than the 4th category (Music), a 2 proportion z test was carried out on the two categories and a p-value of < 2.2e-16 was achieved (see Appendix III for assumptions of test, hypotheses, and test results). This p-value shows a significant difference between the two groups of Comics and Music which leads to acceptance of the alternative hypothesis that there is a significant difference between the two proportions. What this shows is that the success rates of the 3 top groups of Dance, Theater, and Comics are significantly greater than other categories - on average, creators are experiencing more success funding these types of projects and Kickstarter experiences more consistent revenue from these campaign categories.
+
+The final step in the study was to take these categories with significantly high success rates and carry out a chi square test of homogeneity to determine if the top categories in question were succeeding or failing more than expected (to see the assumptions, hypotheses, and results of the test refer to Appendix IV). The results of the chi square test yielded a p-value of 5.403e-08 which was statistically significant at alpha level 0.05. This led to acceptance of our alternative hypothesis that the counts significantly differed; observing the residual table below shows some important results:
+
+```{r, echo=FALSE, include=FALSE}
+ks_table <- as.table(
+  rbind(
+    c(4106, 7206),
+    c(1039, 2250),
+    c(2863, 5721)
+  )
+)
+
+dimnames(ks_table) = list(
+  category = c("Comics", "Dance", "Theater"),
+  status = c("failed", "successful")
+)
+results <- chisq.test(ks_table)
+```
+
+```{r, echo=FALSE}
+results$residuals
+
+```
+
+1. Comics is not as successful as it is expected to be - these campaigns are failing more frequently and succeeding less than expected counts.
+2. Dance campaigns show promise as they fail much less than expected counts and succeed more often as well.
+3. Theater also succeeds more than expected counts and fails less than expected counts.
+
+To conclude the analysis of the original research question "What defines success, and what Kickstarter categories are historically tied to the most successful campaigns?" Success on the Kickstarter platform is without question the ability to secure adequate funding for new campaigns. Achieving this allows creators to pursue their dreams and allows the Kickstarter platform to stay running strong - a win win, and ultimate success. In terms of strictly identifying Kickstarter categories tied to successful campaigns, the most successful categories on average are Dance, Theater, and Art respectively which showed statistically higher success rates. As a potential new creator, this means a well put together campaign has the greatest chance of success in these artistic categories. To a business owner of Kickstarter, this information is strictly praise; the company has done a great job supporting these artistic categories and should possibly focus on raising the success rates of others.
+
+--------------------------------------------------------------------------------
+
+#### IV. Modeling \
+
+The last additional goal of this project was to attempt to fit a linear model to the data. For model fitting results and assumptions see Appendix V.
+
+The results of model fitting yielded a multiple linear regression model that explained 41.37% of the total variability in the data. This model was not significantly successful in fitting the data and was not able to be improved upon in the scope of this project. Thorough EDA showed no relations that implied strong linear correlations between features in the data; the only strong predictors of variables such as predicting the final pledge amount, number of backers, or PG_RATIO were unable to be used due to multicollinearity. Final predictors used in this projects model did not have significantly high VIF factors. Significant predictors included category type as well as the backer count and goal amount of a campaign.
+
+To summarize the attempts of fitting a linear model, there is without question power in the ability for a creator or Kickstarter business owner to be able to predict how much funding a campaign can expect or predict how close this campaign will get to reaching or surpassing a pledge goal. The data observed in this study however did not contain enough significant predictor variables to be able to be able to create a powerful or accurate model. Future directions will be discussed in the conclusions section.  
+
+
+--------------------------------------------------------------------------------
+
+## CONCLUSION
+
+Investigation of the stated research questions through data visualization and hypothesis testing provided the following insights that the creators and business owners of Kickstarter should consider:
+
+#### What has the history of competitiveness been on Kickstarter from 2009-2020 in terms of overall campaigns per category, and pledge generation per category? \
+
+1. The majority of the data lies within the categories of Music, Film & Video, Publishing, and Games which account for 53% of the data. For business owners at Kickstarter, it is recommended that they push to advertise and direct potential backers to these areas since there are so many campaign opportunities here. For new creators and entrepreneurs, it is recommended that they target the lower areas with new ideas due to the lack of innovation in those categories and the potential desire of new backers to enter these much less over saturated categories.
+
+2. Different Kickstarter categories have different average pledge amounts per campaign. This means varying levels of profitability for business owners and significantly differing amounts for what creators in different categories can expect to fund a campaign with.
+
+#### Does campaign launch amount, success or pledging/backing show any time trends or a cyclical nature? \
+
+1. There are significant declines in numbers of campaigns launched and amounts of money pledged during the month of December. There is also drastic increase in discrepancy between the average campaigns pledge goal and funds pledged during the month of December. For new creators, this means that December is a historically unsuccessful month to enter, for business owners this is a month they should expect decreased profits and seek to advertise and support creators during this month. 
+
+#### What defines success, and what Kickstarter categories are tied to the most successful campaigns? \
+
+1. Success is the raw ability to achieve a funding goal allowing a creator to pursue their dreams and Kickstarter to keep running their platform.
+
+2. The categories tied to the most successful campaigns on average are Dance, Theater, and Art respectively. As a potential new creator, this means a well put together campaign has the greatest chance of success in these artistic categories. To a business owner of Kickstarter, this information is praise while also recommendation the company should focus on raising the success rates of other categories.
+
+#### Future Directions \
+
+The most important recommendation of this research along with the insights given to stakeholders on the Kickstarter platform is to collect more meaningful data. This projects scope was limited due to anonymity considerations of the data but was still able to provide valuable insight on the proposed research questions. Modeling endeavors were extremely difficult; this is believed to be due to the fact that Kickstarter campaign success is due to more than what you can quantify. As observed, categories in the arts contain an aspect of creativity that led to significantly higher success rates. For future direction of this research it is recommended more descriptive variables about the exact nature of each campaign are considered and used to model response variables related to pledge amounts. In pursuit of this, creators and business owners would be able to optimize campaign strategies to promote success which allows for monetary gain for Kickstarter to grow its platform and allow more aspiring creators to follow their dreams.
+
+--------------------------------------------------------------------------------
+
+## APPENDIX 
+
+#### Appendix I \
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+print("Summary of GOAL_IN_USD variable")
+summary(kickstarts$GOAL_IN_USD)
+```
+
+```{r, echo=FALSE}
+ggplot(kickstarts2, aes(x=GOAL_IN_USD))+
+  geom_histogram(fill = "cyan3", color = "black") +
+  ggtitle("Histogram of GOAL_IN_USD for filtered data") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+The data is heavily right-skewed however that is expected as a negative goal can not be requested and there are still a large amount of goals that ask for large sums of money. Most of the observations are in the 1,000 - 4,000 USD range. The peaks seen are due to the large amounts of campaigns asking for round amounts (5,000 and 10,000 USD).
+
+--------------------------------------------------------------------------------
+
+#### Appendix II \
+
+```{r, echo=FALSE}
+successes <- kickstarts %>% 
+  filter(STATUS == "successful") %>%
+  group_by(CATEGORY) %>%
+  summarize(count = n()) %>%
+  ggplot(aes(y = fct_reorder(CATEGORY, count), x = count)) +
+  geom_bar(stat = "identity", fill = "#03bfc4") +
+  ggtitle("What Kickstarter Categories Have the Most Successes/Failures?") +
+  labs(subtitle = "Successes", x = "Number of Successes", y = "Category") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 10, hjust = 1),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+failures <- kickstarts %>% 
+  filter(STATUS == "failed") %>%
+  group_by(CATEGORY) %>%
+  summarize(count = n()) %>%
+  ggplot(aes(y = fct_reorder(CATEGORY, count), x = count)) +
+  ggtitle("") +
+  geom_bar(stat = "identity", fill = "#f7766d") +
+  labs(subtitle = "Failures", x = "Number of Failures") +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.x = element_text(angle = 10, hjust = 1),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+grid.arrange(successes, failures, ncol = 2)
+```
+
+--------------------------------------------------------------------------------
+
+#### Appendix III \
+
+2 proportion Z test
+
+Assumptions:
+
+1. Sample Size of 309,642 observations achieves (np >= 10 and n(1-p) >= 10 for each group).
+2. Observations are indepedent - each observation is an independent campaign not influenced by another.
+3. Independent groups - no one observation can occur in more than one group.
+4. All groups meet the 10% minimum requirement of the population for a z test.
+
+H0: There is no significant difference in the success rates of Music and Comics categories.\
+HA: The success rates of Music and Comics categories are significantly different.
+
+```{r, echo=FALSE}
+
+x_music <- kickstarts %>%
+  filter(CATEGORY == "Music") %>%
+  nrow() * 0.53
+
+n_music <- kickstarts %>%
+  filter(CATEGORY == "Music") %>%
+  nrow()
+
+x_comics <- kickstarts %>%
+  filter(CATEGORY == "Comics") %>%
+  nrow() * 0.59
+
+n_comics <- kickstarts %>%
+  filter(CATEGORY == "Comics") %>%
+  nrow()
+
+prop.test(x=c(x_music,x_comics),n=c(n_music,n_comics),alternative = "less")
+```
+
+
+--------------------------------------------------------------------------------
+
+#### Appendix IV \
+
+```{r, echo=FALSE, message=FALSE}
+info <- kickstarts2 %>%
+  filter(CATEGORY %in% c("Dance", "Comics", "Theater") & STATUS %in% c("failed", "successful")) %>%
+  group_by(CATEGORY, STATUS) %>%
+  summarize(count = n()) %>%
+  pivot_wider(names_from = STATUS, values_from = count)
+
+ks_table <- as.table(
+  rbind(
+    c(4106, 7206),
+    c(1039, 2250),
+    c(2863, 5721)
+  )
+)
+
+dimnames(ks_table) = list(
+  category = c("Comics", "Dance", "Theater"),
+  status = c("failed", "successful")
+)
+
+```
+
+```{r, echo=FALSE}
+results <- chisq.test(ks_table)
+results
+```
+
+Assumptions:
+
+1. Expected counts of all cells greater than 5.
+2. Each observation goes to only one cell - independent campaigns can not pertain to more than one category.
+3. Independent groups are satisfied since there is one independent campaign for each observation and no single campaign can fall into more than one category.
+
+H0: There is no significant differences between the observed and expected counts between the 3 categories. \
+HA: There exists significant differences between the observed and expected counts between the 3 categories.
+
+```{r, echo=FALSE}
+print("Observed Counts")
+ks_table
+print("Expected Counts")
+results$expected
+print("Residuals")
+results$residuals
+```
+
+--------------------------------------------------------------------------------
+
+#### Appendix V \
+
+##### Linear Modeling \
+
+Scatterplot:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+kickstarts2 %>%
+  filter(PG_RATIO >= 0.5 & PG_RATIO <= 20) %>%
+ggplot(aes(x = BACKERS_COUNT, y = PG_RATIO))+
+  geom_point()+
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(title = "Scatterplot of PG_RATIO vs BACKERS_COUNT", 
+       subtitle = "***Other variables included in MLR not shown on 2D Plot***",
+       x = "Count of Backers:",
+       y = "Pledge Amount / Goal Amount")
+
+```
+
+Fitting Model
+
+```{r, echo=FALSE}
+ks_model_data <- kickstarts2 %>%
+  filter(PG_RATIO >= 0.5 & PG_RATIO <= 20)
+
+fund_mod <- lm(PG_RATIO ~ CATEGORY + LAUNCH_YEAR + FUNDING_WINDOW_DAYS + BACKERS_COUNT + GOAL_IN_USD, data = ks_model_data)
+summary(fund_mod)
+
+```
+
+Adjusted R-squared value of 0.4137 was achieved with Residual standard error of 1.289 on 132109 degrees of freedom. Significant predictors included many different categories in the data as well as the backer count and goal amount of a campaign. 
+
+```{r}
+plot(fund_mod)
+
+qqnorm(residuals(fund_mod))
+```
+
+```{r}
+vif(fund_mod)
+```
+
+ASSUMPTIONS:
+
+Linearity: The Residuals vs Fitted and Scale vs Location plots do not show random scattering around the zero line on the lower and of the fitted values and residuals.
+
+Independent Observations: The vif() results shown above do not indicate any issues with high multicollinearity as all values are below 5.
+
+Normally distributed errors and residuals: Normal Q-Q plot shows deviation from the 45 line in the middle of the line compared to the tails which indicates departure from normalcy in the distribution of the residuals.
+
+Equal variance for all X's: The Residuals vs Fitted and Scale vs Location plots do not show random scattering around the zero line on the lower and of the fitted values and residuals.
+
+--------------------------------------------------------------------------------
+
+## REFERENCES
+
+Kickstarter. (n.d.). About. Retrieved December 10, 2023, from https://www.kickstarter.com/about
+
+
+--------------------------------------------------------------------------------
+
