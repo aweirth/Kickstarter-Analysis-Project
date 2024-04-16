@@ -1,6 +1,6 @@
 # Kickstarter Analysis Project
 
-This repository contains my final project for my graduate data visualization class at Willamette University. The goal of this project was to create a better tool for avid golf fans to access and understand important tournament data through an interactive data dashboard synthesizing PGA Tour Tournament statistics. This project was completed using an R Shiny App which can be viewed at this [link](https://aweirth.shinyapps.io/shiny_masters/).
+This repository contains the final project done for my graduate data analytics course at Willamette University. The objective of the project was to complete an analysis on supplied Kickstarter crowdfunding data, answering macro-level questions, telling a clear story, and uncovering trends in the data which could be could be acted upon. In 72 hours, I was able to clean, wrangle, explore, and provide actionable reccomendations for stakeholders in the data.
 
 
 ## Table of Contents
@@ -14,15 +14,13 @@ This repository contains my final project for my graduate data visualization cla
 
 ## About
 
-#### The Problem
-
-As an avid fan of the PGA Tour, one might be interested in diving deeper into results and statistics from certain tournaments regularly, however, the PGA Tour does a poor job of presenting and making data visualization accessible for fans ([see here](https://www.pgatour.com/stats)). On the official website, there is no way to easily view individual data and understand important trends from tournament results. 
-
-As an alternative, Data Golf is an online platform that collects PGA Tour data, runs a visualization blog, and maintains extensive machine learning models attempting to predict tournament outcomes. I constantly view this page as their machine learning models are interesting to track and monitor favorites for a given tournament. The issue with the Data Golf website is that for an audience with no background in data science, the dashboard can be extremely overwhelming especially for a non-technical audience.
-
 #### The Goal
 
-These problems led to clear definition of this projects goal: **Design an informative dashboard capable of conveying critical insights from individual tournaments, including important aspects of a winner's performance and overarching gameplay trends. Communicate this while prioritizing a clean, concise, and user-friendly interface accessible for all golf enthusiasts.**
+The scope of this project was aimed at addressing, but not limited to:
+
+- Which categories contain the greatest quantity of campaigns? The least?
+- Is there any time trend in terms of the number of campaigns launched?
+- Which project categories were tied to the most successful campaigns? The most unsuccessful campaigns? (And how do you define “successful”?)
 
 #### The Data
 
